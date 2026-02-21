@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { SignedIn, SignedOut, SignInButton } from '@clerk/clerk-react';
 import LiquidBackground from './LiquidBackground';
+import { TypewriterEffect } from '../components/ui/typewriter-effect';
 
 export default function Hero() {
     return (
@@ -18,9 +19,18 @@ export default function Hero() {
                 transition={{ duration: 0.6, ease: "easeOut" }}
                 className="relative z-10 flex flex-col items-center justify-center text-center max-w-5xl mx-auto"
             >
-                <h1 className="text-2xl md:text-4xl lg:text-5xl font-semibold tracking-tight text-white mb-10 leading-tight block whitespace-nowrap font-calibri">
-                    Secure &amp; Programmable Digital Land Registry
-                </h1>
+                <TypewriterEffect
+                    words={[
+                        { text: "Secure", className: "text-white font-calibri text-2xl md:text-4xl lg:text-5xl tracking-tight" },
+                        { text: "&", className: "text-white font-calibri text-2xl md:text-4xl lg:text-5xl tracking-tight" },
+                        { text: "Programmable", className: "text-white font-calibri text-2xl md:text-4xl lg:text-5xl tracking-tight" },
+                        { text: "Digital", className: "text-white font-calibri text-2xl md:text-4xl lg:text-5xl tracking-tight" },
+                        { text: "Land", className: "text-white font-calibri text-2xl md:text-4xl lg:text-5xl tracking-tight" },
+                        { text: "Registry", className: "text-white font-calibri text-2xl md:text-4xl lg:text-5xl tracking-tight" }
+                    ]}
+                    className="mb-10 block whitespace-nowrap"
+                    cursorClassName="bg-brand-300"
+                />
 
                 <SignedOut>
                     <SignInButton mode="modal" forceRedirectUrl="/dashboard">
