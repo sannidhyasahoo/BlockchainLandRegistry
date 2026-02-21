@@ -1,0 +1,16 @@
+
+> frontend@0.0.0 build
+> tsc -b && vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 3 modules transformed.
+[31mx[39m Build failed in 628ms
+[31merror during build:
+[31m[vite:css] [postcss] It looks like you're trying to use `tailwindcss` directly as a PostCSS plugin. The PostCSS plugin has moved to a separate package, so to continue using Tailwind CSS with PostCSS you'll need to install `@tailwindcss/postcss` and update your PostCSS configuration.[31m
+file: [36mC:/HACK GLOBAL/BlockchainLandRegistry/frontend/src/index.css:undefined:NaN[31m
+    at at (C:\HACK GLOBAL\BlockchainLandRegistry\frontend\node_modules\tailwindcss\dist\lib.js:38:1643)
+    at LazyResult.runOnRoot (C:\HACK GLOBAL\BlockchainLandRegistry\frontend\node_modules\postcss\lib\lazy-result.js:361:16)
+    at LazyResult.runAsync (C:\HACK GLOBAL\BlockchainLandRegistry\frontend\node_modules\postcss\lib\lazy-result.js:290:26)
+    at LazyResult.async (C:\HACK GLOBAL\BlockchainLandRegistry\frontend\node_modules\postcss\lib\lazy-result.js:192:30)
+    at LazyResult.then (C:\HACK GLOBAL\BlockchainLandRegistry\frontend\node_modules\postcss\lib\lazy-result.js:436:17)[39m
