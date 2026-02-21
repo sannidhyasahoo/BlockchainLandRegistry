@@ -2,6 +2,7 @@
  * components/Navbar.jsx
  */
 import { Link, useLocation } from "react-router-dom";
+import { UserButton } from "@clerk/clerk-react";
 import { useWallet } from "../context/WalletContext";
 import { BLOCK_EXPLORER, CONTRACT_ADDRESS } from "../constants";
 
@@ -48,6 +49,11 @@ export default function Navbar() {
             {connecting ? "Connecting…" : "Connect Wallet"}
           </button>
         )}
+
+        {/* Clerk Profile & Logout Dropdown */}
+        <div className="ml-4 flex items-center border-l border-white/10 pl-4">
+          <UserButton afterSignOutUrl="/" />
+        </div>
       </div>
     </nav>
   );

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 
 export default function LandingNavbar() {
     return (
@@ -22,18 +23,24 @@ export default function LandingNavbar() {
                     >
                         About
                     </a>
-                    <a
-                        href="#solutions"
-                        className="text-base font-medium text-brand-200 hover:text-white transition-colors duration-200"
-                    >
-                        Solutions
-                    </a>
 
-                    <Link to="/dashboard">
-                        <button className="text-base font-semibold text-white bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 px-6 py-3 rounded-lg transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg hover:scale-105 transform">
-                            Sign In
-                        </button>
-                    </Link>
+                    <SignedOut>
+                        <Link to="/sign-in">
+                            <button className="text-base font-semibold text-white bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 px-6 py-3 rounded-lg transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg hover:scale-105 transform">
+                                Sign In
+                            </button>
+                        </Link>
+                    </SignedOut>
+                    <SignedIn>
+                        <div className="flex items-center gap-6">
+                            <Link to="/role-selection">
+                                <button className="text-base font-semibold text-brand-100 hover:text-white transition-colors">
+                                    Dashboard
+                                </button>
+                            </Link>
+                            <UserButton afterSignOutUrl="/" />
+                        </div>
+                    </SignedIn>
                 </nav>
             </div>
         </header>

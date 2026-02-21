@@ -42,7 +42,7 @@ export default function Hero() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 1, delay: 0.6, ease: "easeOut" }}
                 >
-                    <Link to="/dashboard">
+                    <Link to="/sign-in">
                         <button className="px-14 py-5 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-xl transition-all duration-300 text-xl shadow-lg hover:shadow-brand-500/50 cursor-pointer hover:scale-105 transform">
                             Get Started
                         </button>
