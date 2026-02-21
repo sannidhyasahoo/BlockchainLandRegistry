@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import { SignedIn, SignedOut, SignInButton } from '@clerk/clerk-react';
 import LiquidBackground from './LiquidBackground';
 
 export default function Hero() {
@@ -21,11 +22,20 @@ export default function Hero() {
                     Secure &amp; Programmable Digital Land Registry
                 </h1>
 
-                <Link to="/dashboard">
-                    <button className="px-8 py-3 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-md transition-colors duration-200 text-lg shadow-sm w-fit tap-highlight-transparent cursor-pointer hover:scale-[1.02] transform">
-                        Get Started
-                    </button>
-                </Link>
+                <SignedOut>
+                    <SignInButton mode="modal" forceRedirectUrl="/dashboard">
+                        <button className="px-8 py-3 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-md transition-colors duration-200 text-lg shadow-sm w-fit tap-highlight-transparent cursor-pointer hover:scale-[1.02] transform">
+                            Get Started
+                        </button>
+                    </SignInButton>
+                </SignedOut>
+                <SignedIn>
+                    <Link to="/dashboard">
+                        <button className="px-8 py-3 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-md transition-colors duration-200 text-lg shadow-sm w-fit tap-highlight-transparent cursor-pointer hover:scale-[1.02] transform">
+                            Go to Dashboard
+                        </button>
+                    </Link>
+                </SignedIn>
             </motion.div>
         </section>
     );

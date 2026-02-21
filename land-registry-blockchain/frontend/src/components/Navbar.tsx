@@ -1,6 +1,7 @@
 import React from 'react';
-import { Landmark } from 'lucide-react'; // Institutional icon placeholder
+import { Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
 
 export default function Navbar() {
     return (
@@ -23,11 +24,23 @@ export default function Navbar() {
                         About
                     </a>
 
-                    <Link to="/dashboard">
-                        <button className="text-sm font-medium text-white bg-brand-700 hover:bg-brand-600 px-4 py-2 rounded-md transition-opacity duration-200 cursor-pointer">
-                            Sign In
-                        </button>
-                    </Link>
+                    <SignedOut>
+                        <SignInButton mode="modal" forceRedirectUrl="/dashboard">
+                            <button className="text-sm font-medium text-white bg-brand-700 hover:bg-brand-600 px-4 py-2 rounded-md transition-opacity duration-200 cursor-pointer">
+                                Sign In
+                            </button>
+                        </SignInButton>
+                    </SignedOut>
+                    <SignedIn>
+                        <div className="flex items-center gap-4">
+                            <Link to="/dashboard">
+                                <button className="text-sm font-medium text-white bg-brand-800 hover:bg-brand-700 border border-brand-600 px-4 py-2 rounded-md transition-all duration-200 cursor-pointer">
+                                    Dashboard
+                                </button>
+                            </Link>
+                            <UserButton afterSignOutUrl="/" />
+                        </div>
+                    </SignedIn>
                 </nav>
             </div>
         </header>
