@@ -45,6 +45,19 @@ export function WalletProvider({ children }) {
     try {
       await switchToAmoy();
       const provider = new ethers.BrowserProvider(window.ethereum);
+
+      // Polygon Amoy requires min 25 gwei tip; MetaMask sometimes suggests lower.
+      const origGetFeeData = provider.getFeeData.bind(provider);
+      provider.getFeeData = async () => {
+        const fd = await origGetFeeData();
+        const minTip = ethers.parseUnits("30", "gwei");
+        return new ethers.FeeData(
+          fd.gasPrice,
+          fd.maxFeePerGas,
+          fd.maxPriorityFeePerGas != null && fd.maxPriorityFeePerGas < minTip ? minTip : fd.maxPriorityFeePerGas
+        );
+      };
+
       const s = await provider.getSigner();
       const addr = await s.getAddress();
       const network = await provider.getNetwork();

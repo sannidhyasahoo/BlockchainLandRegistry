@@ -1,19 +1,13 @@
 /**
  * pages/MintProperty.jsx
- * ──────────────────────────────────────────────────────────────────────────────
- * Registrar-only form:
- *  1. Fill property details
- *  2. Upload deed PDF → Pinata → File CID
- *  3. Optional image upload → Image CID
- *  4. Build ERC-721 metadata → Metadata CID (tokenURI)
- *  5. Call mintProperty(seller, tokenURI, price)
+ * Citizen form: upload to IPFS and request mint
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useWallet } from "../context/WalletContext";
 import { uploadFileToIPFS, uploadMetadataToIPFS } from "../utils/ipfs";
-import { getWriteContract, parsePrice } from "../utils/contract";
+import { getWriteContract, parsePrice, gasOverrides } from "../utils/contract";
 import { BLOCK_EXPLORER } from "../constants";
 
 const INITIAL = {
@@ -23,28 +17,24 @@ const INITIAL = {
   type: "Residential",
   zone: "",
   legalStatus: "Clear Title",
-  sellerAddress: "",
   priceEth: "",
 };
 
 export default function MintProperty() {
-  const { signer, isRegistrar } = useWallet();
+  const { signer } = useWallet();
+  const role = localStorage.getItem("userRole");
   const navigate = useNavigate();
 
   const [form, setForm]       = useState(INITIAL);
   const [deedFile, setDeed]   = useState(null);
   const [imageFile, setImage] = useState(null);
-  const [step, setStep]       = useState("idle"); // idle | uploading-deed | uploading-image | uploading-meta | minting | done
+  const [step, setStep]       = useState("idle");
   const [txHash, setTxHash]   = useState("");
 
-  if (!isRegistrar) {
+  if (role === "registrar") {
     return (
-      <div className="page">
-        <div className="access-denied">
-          <span>🔒</span>
-          <h2>Registrar Access Only</h2>
-          <p>Only the registered government Registrar wallet can mint new properties.</p>
-        </div>
+      <div className="page" style={{ textAlign: "center", padding: "80px 20px", color: "var(--text-3)" }}>
+        <p>Registrars cannot request mints.</p>
       </div>
     );
   }
@@ -53,45 +43,38 @@ export default function MintProperty() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // ── Validation ────────────────────────────────────────────────
-    if (!deedFile)              return toast.error("Upload a deed document (PDF/image).");
-    if (!form.sellerAddress)    return toast.error("Enter the seller's wallet address.");
+    if (!deedFile)              return toast.error("Upload a deed document.");
     if (!form.priceEth || isNaN(Number(form.priceEth))) return toast.error("Enter a valid price.");
 
     try {
-      // Step 1: Upload deed to IPFS
       setStep("uploading-deed");
       toast.loading("Uploading deed to IPFS…", { id: "mint" });
       const fileCID = await uploadFileToIPFS(deedFile);
 
-      // Step 2: Upload image if separate
       let imageCID = null;
       if (imageFile) {
         setStep("uploading-image");
-        toast.loading("Uploading property image…", { id: "mint" });
+        toast.loading("Uploading image…", { id: "mint" });
         imageCID = await uploadFileToIPFS(imageFile);
       }
 
-      // Step 3: Build and upload metadata
       setStep("uploading-meta");
-      toast.loading("Uploading metadata to IPFS…", { id: "mint" });
+      toast.loading("Uploading metadata…", { id: "mint" });
       const metaCID = await uploadMetadataToIPFS(form, fileCID, imageCID);
       const tokenURI = `ipfs://${metaCID}`;
 
-      // Step 4: Mint on-chain
       setStep("minting");
-      toast.loading("Confirm transaction in MetaMask…", { id: "mint" });
+      toast.loading("Confirm in MetaMask…", { id: "mint" });
       const contract = getWriteContract(signer);
       const price = parsePrice(form.priceEth);
-      const tx = await contract.mintProperty(form.sellerAddress, tokenURI, price);
+      const tx = await contract.requestMint(tokenURI, price, gasOverrides());
 
       toast.loading("Mining transaction…", { id: "mint" });
       await tx.wait();
 
       setTxHash(tx.hash);
       setStep("done");
-      toast.success("Property minted successfully! 🎉", { id: "mint" });
+      toast.success("Mint request submitted! 🎉", { id: "mint" });
     } catch (err) {
       setStep("idle");
       toast.error(err.reason || err.message || "Transaction failed", { id: "mint" });
@@ -103,14 +86,14 @@ export default function MintProperty() {
       <div className="page">
         <div className="success-panel">
           <div className="success-icon">✅</div>
-          <h2>Property Minted!</h2>
-          <p>The property NFT has been minted and listed on-chain.</p>
+          <h2>Mint Request Submitted</h2>
+          <p>Your property has been submitted for registrar approval.</p>
           <a href={`${BLOCK_EXPLORER}/tx/${txHash}`} target="_blank" rel="noopener noreferrer" className="btn-primary">
             View on PolygonScan ↗
           </a>
           <div className="success-actions">
             <button className="btn-secondary" onClick={() => { setForm(INITIAL); setStep("idle"); }}>Mint Another</button>
-            <button className="btn-ghost" onClick={() => navigate("/dashboard")}>View All Properties</button>
+            <button className="btn-ghost" onClick={() => navigate("/user-dashboard")}>View Properties</button>
           </div>
         </div>
       </div>
@@ -119,28 +102,28 @@ export default function MintProperty() {
 
   const busy = step !== "idle";
   const stepLabel = {
-    "uploading-deed":  "⬆ Uploading deed to IPFS…",
-    "uploading-image": "⬆ Uploading image to IPFS…",
-    "uploading-meta":  "⬆ Building metadata on IPFS…",
-    "minting":         "⛏ Minting on blockchain…",
+    "uploading-deed":  "Uploading deed to IPFS…",
+    "uploading-image": "Uploading image to IPFS…",
+    "uploading-meta":  "Building metadata…",
+    "minting":         "Minting on chain…",
   }[step] || "";
 
   return (
     <div className="page">
       <div className="page-header">
-        <h1>✦ Mint New Property</h1>
-        <p>Upload land documents to IPFS and register the property NFT on-chain</p>
+        <h1>Request New Mint</h1>
+        <p>Upload land documents to IPFS and submit a mint request</p>
       </div>
 
       <form className="mint-form" onSubmit={handleSubmit}>
-        {/* ── Property Details ─────────────────────────────── */}
+        {/* Property Details */}
         <section className="form-section">
           <h3>Property Details</h3>
           <div className="form-row">
             <label>
-              Property Name *
+              Name *
               <input value={form.name} onChange={(e) => set("name", e.target.value)}
-                placeholder="Plot #101 – MSR Nagar, Bengaluru" required disabled={busy} />
+                placeholder="Plot #101 – MSR Nagar" required disabled={busy} />
             </label>
             <label>
               Area
@@ -166,7 +149,7 @@ export default function MintProperty() {
           <label>
             Description *
             <textarea value={form.description} onChange={(e) => set("description", e.target.value)}
-              placeholder="A 1200 sqft residential plot near RIT-B campus. Verified by Registrar."
+              placeholder="Brief description of the property"
               rows={3} required disabled={busy} />
           </label>
           <label>
@@ -179,17 +162,12 @@ export default function MintProperty() {
           </label>
         </section>
 
-        {/* ── Seller & Price ───────────────────────────────── */}
+        {/* Price */}
         <section className="form-section">
-          <h3>Listing Details</h3>
+          <h3>Listing</h3>
           <div className="form-row">
             <label>
-              Seller Wallet Address *
-              <input value={form.sellerAddress} onChange={(e) => set("sellerAddress", e.target.value)}
-                placeholder="0xSeller..." required disabled={busy} />
-            </label>
-            <label>
-              Listing Price (POL) *
+              Price (POL) *
               <input type="number" step="0.001" min="0" value={form.priceEth}
                 onChange={(e) => set("priceEth", e.target.value)}
                 placeholder="10.5" required disabled={busy} />
@@ -197,9 +175,9 @@ export default function MintProperty() {
           </div>
         </section>
 
-        {/* ── Document Upload ──────────────────────────────── */}
+        {/* Documents */}
         <section className="form-section">
-          <h3>Documents (IPFS)</h3>
+          <h3>Documents</h3>
           <div className="form-row">
             <label className="file-label">
               <span>Deed Document * <em>(PDF or image)</em></span>
@@ -209,9 +187,9 @@ export default function MintProperty() {
                 onDrop={(e) => { e.preventDefault(); setDeed(e.dataTransfer.files[0]); }}
               >
                 {deedFile ? (
-                  <><span className="file-icon">📄</span>{deedFile.name}</>
+                  <>{deedFile.name}</>
                 ) : (
-                  <><span className="file-icon">⬆</span>Click or drag file here</>
+                  <>Click or drag to upload</>
                 )}
               </div>
               <input id="deed-input" type="file" accept=".pdf,image/*"
@@ -226,9 +204,9 @@ export default function MintProperty() {
                 onDrop={(e) => { e.preventDefault(); setImage(e.dataTransfer.files[0]); }}
               >
                 {imageFile ? (
-                  <><span className="file-icon">🖼️</span>{imageFile.name}</>
+                  <>{imageFile.name}</>
                 ) : (
-                  <><span className="file-icon">⬆</span>Click or drag file here</>
+                  <>Click or drag to upload</>
                 )}
               </div>
               <input id="image-input" type="file" accept="image/*"
@@ -237,11 +215,11 @@ export default function MintProperty() {
           </div>
         </section>
 
-        {/* ── Submit ───────────────────────────────────────── */}
+        {/* Submit */}
         <div className="form-submit">
           {busy && <div className="step-indicator">{stepLabel}</div>}
           <button type="submit" className="btn-primary btn-large" disabled={busy}>
-            {busy ? "Processing…" : "⬆ Upload to IPFS & Mint NFT"}
+            {busy ? "Processing…" : "Submit Mint Request"}
           </button>
         </div>
       </form>

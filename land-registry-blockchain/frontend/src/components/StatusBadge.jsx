@@ -8,12 +8,8 @@ export default function StatusBadge({ status }) {
   return (
     <span
       className="status-badge"
-      style={{ color: s.color, background: s.bg, border: `1px solid ${s.color}40` }}
+      style={{ color: s.color, background: s.bg, border: `1px solid ${s.color}30` }}
     >
-      {status === 0 && "● "}
-      {status === 1 && "◌ "}
-      {status === 2 && "✓ "}
-      {status === 3 && "⚠ "}
       {s.label}
     </span>
   );

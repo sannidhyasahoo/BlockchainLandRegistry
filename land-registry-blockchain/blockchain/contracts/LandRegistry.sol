@@ -6,218 +6,258 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
  * @title LandRegistry
- * @dev A blockchain-based land registry system implementing:
- *      - ERC721 NFTs representing property deeds
- *      - Role-Based Access Control (RBAC) for Registrar authority
- *      - A Legal Escrow State Machine for secure transfers
- *      - Dispute resolution capability
+ * @dev Trust-Based Escrow Governance for land deeds on Polygon.
+ *
+ *  Status flow:
+ *    MintPending ─(approveAndMint)─▶ Active
+ *    Active ─(recordTrust)─▶ TrustRecorded
+ *    TrustRecorded ─(depositFunds)─▶ FundsLocked
+ *    FundsLocked ─(confirmFunds)─▶ AwaitingFinal
+ *    AwaitingFinal ─(finalizeTransfer)─▶ Sold
+ *
+ *    Any non-Sold ─(toggleFreeze)─▶ Frozen
+ *    Frozen ─(toggleFreeze)─▶ (previous status restored as Active)
  */
 contract LandRegistry is ERC721URIStorage, AccessControl {
 
-    // ─────────────────────────────────────────────────────────────
-    //  ROLES
-    // ─────────────────────────────────────────────────────────────
-
-    /// @dev Only this role can mint properties, approve transfers, and dispute
+    // ─── ROLES ───────────────────────────────────────────────────
     bytes32 public constant REGISTRAR_ROLE = keccak256("REGISTRAR_ROLE");
 
-    // ─────────────────────────────────────────────────────────────
-    //  STATE MACHINE ENUM
-    // ─────────────────────────────────────────────────────────────
-
+    // ─── STATUS ENUM ─────────────────────────────────────────────
     enum Status {
-        Active,    // Property is listed; available for purchase
-        Pending,   // Buyer has deposited funds into escrow
-        Sold,      // Transfer complete; ownership moved
-        Disputed   // Registrar has frozen the property
+        MintPending,    // 0  Request submitted, not yet minted
+        Active,         // 1  NFT minted, available for sale
+        TrustRecorded,  // 2  Seller verified buyer (physical meeting)
+        FundsLocked,    // 3  Buyer deposited POL into escrow
+        AwaitingFinal,  // 4  Seller confirmed, waiting for registrar
+        Sold,           // 5  Transfer complete
+        Frozen          // 6  Registrar froze this property
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  DATA STRUCTURES
-    // ─────────────────────────────────────────────────────────────
-
+    // ─── STRUCTS ─────────────────────────────────────────────────
     struct Property {
-        uint256 price;       // Listed price in wei (MATIC/POL)
-        Status  status;      // Current state of the property
-        address seller;      // Address of the current NFT holder
-        address buyer;       // Address of the prospective buyer (set on deposit)
-        uint256 escrow;      // Exact amount held in escrow for this token
+        uint256 price;
+        Status  status;
+        address seller;
+        address potentialBuyer;
+        bool    trustRecorded;
+        bool    sellerConfirmed;
+        uint256 escrow;
+        bool    frozen;
     }
 
-    /// @dev tokenId => Property
+    struct MintRequest {
+        address seller;
+        string  uri;
+        uint256 price;
+        bool    isPending;
+    }
+
+    // ─── STATE ───────────────────────────────────────────────────
     mapping(uint256 => Property) public properties;
+    mapping(uint256 => MintRequest) public mintRequests;
 
-    /// @dev Auto-incrementing token ID counter
     uint256 private _nextTokenId;
+    uint256 public  nextRequestId;
 
-    // ─────────────────────────────────────────────────────────────
-    //  EVENTS
-    // ─────────────────────────────────────────────────────────────
-
+    // ─── EVENTS ──────────────────────────────────────────────────
+    event MintRequested(uint256 indexed requestId, address indexed seller, uint256 price, string uri);
     event PropertyMinted(uint256 indexed tokenId, address indexed seller, uint256 price, string uri);
-    event PurchaseStarted(uint256 indexed tokenId, address indexed buyer, uint256 amountDeposited);
-    event TransferApproved(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 amount);
-    event PropertyDisputed(uint256 indexed tokenId, string reason);
-    event DisputeResolved(uint256 indexed tokenId);
+    event TrustRecordedEvent(uint256 indexed tokenId, address indexed seller, address indexed buyer);
+    event FundsDeposited(uint256 indexed tokenId, address indexed buyer, uint256 amount);
+    event SellerConfirmed(uint256 indexed tokenId, address indexed seller);
+    event TransferFinalized(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 amount);
+    event PropertyFrozen(uint256 indexed tokenId, bool frozen);
 
-    // ─────────────────────────────────────────────────────────────
-    //  CONSTRUCTOR
-    // ─────────────────────────────────────────────────────────────
+    // ─── MODIFIERS ───────────────────────────────────────────────
+    modifier isNotFrozen(uint256 tokenId) {
+        require(!properties[tokenId].frozen, "LandRegistry: property is frozen");
+        _;
+    }
 
-    /**
-     * @dev Deploys the contract and grants REGISTRAR_ROLE to the deployer.
-     *      The deployer becomes the de-facto government registrar.
-     */
+    // ─── CONSTRUCTOR ─────────────────────────────────────────────
     constructor() ERC721("LandDeed", "LND") {
-        // Grant DEFAULT_ADMIN_ROLE so the deployer can manage roles
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        // Grant REGISTRAR_ROLE to the deployer (the land registry authority)
         _grantRole(REGISTRAR_ROLE, msg.sender);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  REGISTRAR FUNCTIONS
-    // ─────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
+    //  STAGE 1 — MINT REQUEST & APPROVAL
+    // ═════════════════════════════════════════════════════════════
 
-    /**
-     * @notice Mint a new property NFT and list it for sale.
-     * @dev Only callable by a Registrar. The NFT is minted to the seller.
-     * @param seller  The wallet address of the property owner
-     * @param uri     IPFS URI pointing to the property's legal metadata
-     * @param price   The listing price in wei
-     */
-    function mintProperty(
-        address seller,
-        string memory uri,
-        uint256 price
-    ) external onlyRole(REGISTRAR_ROLE) {
-        require(seller != address(0), "LandRegistry: seller is zero address");
-        require(price > 0,           "LandRegistry: price must be > 0");
+    /// @notice Citizen submits a mint request with IPFS metadata and price.
+    function requestMint(string memory uri, uint256 price) external {
+        require(price > 0, "LandRegistry: price must be > 0");
         require(bytes(uri).length > 0, "LandRegistry: URI cannot be empty");
 
-        uint256 tokenId = _nextTokenId++;
-        _safeMint(seller, tokenId);
-        _setTokenURI(tokenId, uri);
-
-        properties[tokenId] = Property({
-            price:  price,
-            status: Status.Active,
-            seller: seller,
-            buyer:  address(0),
-            escrow: 0
+        uint256 requestId = nextRequestId++;
+        mintRequests[requestId] = MintRequest({
+            seller: msg.sender,
+            uri: uri,
+            price: price,
+            isPending: true
         });
 
-        emit PropertyMinted(tokenId, seller, price, uri);
+        emit MintRequested(requestId, msg.sender, price, uri);
     }
 
-    /**
-     * @notice Approve the finalised legal transfer of a property NFT.
-     * @dev Only callable by a Registrar after verifying off-chain documents.
-     *      Transfers the NFT to the buyer and releases escrowed MATIC to the seller.
-     * @param tokenId The ID of the property NFT
-     */
-    function approveTransfer(uint256 tokenId) external onlyRole(REGISTRAR_ROLE) {
-        Property storage prop = properties[tokenId];
+    /// @notice Registrar verifies documents and mints the NFT.
+    function approveAndMint(uint256 requestId) external onlyRole(REGISTRAR_ROLE) {
+        MintRequest storage req = mintRequests[requestId];
+        require(req.isPending, "LandRegistry: request not pending");
 
-        // Security Constraints (Task B)
-        require(prop.status == Status.Pending,            "LandRegistry: property not in Pending state");
-        require(prop.buyer  != address(0),                "LandRegistry: no buyer registered");
-        require(address(this).balance >= prop.escrow,     "LandRegistry: insufficient contract balance");
-        require(prop.escrow == prop.price,                "LandRegistry: escrow mismatch with listed price");
+        req.isPending = false;
+
+        uint256 tokenId = _nextTokenId++;
+        _safeMint(req.seller, tokenId);
+        _setTokenURI(tokenId, req.uri);
+
+        properties[tokenId] = Property({
+            price:           req.price,
+            status:          Status.Active,
+            seller:          req.seller,
+            potentialBuyer:  address(0),
+            trustRecorded:   false,
+            sellerConfirmed: false,
+            escrow:          0,
+            frozen:          false
+        });
+
+        emit PropertyMinted(tokenId, req.seller, req.price, req.uri);
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    //  STAGE 2 — PHYSICAL TRUST
+    // ═════════════════════════════════════════════════════════════
+
+    /// @notice Seller records that they have physically met the buyer.
+    function recordTrust(uint256 tokenId, address buyerAddress)
+        external
+        isNotFrozen(tokenId)
+    {
+        Property storage prop = properties[tokenId];
+        require(prop.status == Status.Active, "LandRegistry: not Active");
+        require(msg.sender == prop.seller, "LandRegistry: only seller");
+        require(buyerAddress != address(0), "LandRegistry: zero buyer");
+        require(buyerAddress != prop.seller, "LandRegistry: cannot trust self");
+
+        prop.potentialBuyer = buyerAddress;
+        prop.trustRecorded  = true;
+        prop.status         = Status.TrustRecorded;
+
+        emit TrustRecordedEvent(tokenId, msg.sender, buyerAddress);
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    //  STAGE 3 — ESCROW
+    // ═════════════════════════════════════════════════════════════
+
+    /// @notice Designated buyer deposits the exact POL price into escrow.
+    function depositFunds(uint256 tokenId)
+        external
+        payable
+        isNotFrozen(tokenId)
+    {
+        Property storage prop = properties[tokenId];
+        require(prop.status == Status.TrustRecorded, "LandRegistry: not TrustRecorded");
+        require(msg.sender == prop.potentialBuyer, "LandRegistry: not designated buyer");
+        require(msg.value == prop.price, "LandRegistry: send exact price");
+
+        prop.escrow = msg.value;
+        prop.status = Status.FundsLocked;
+
+        emit FundsDeposited(tokenId, msg.sender, msg.value);
+    }
+
+    /// @notice Seller confirms they are ready (e.g. ready to vacate).
+    function confirmFunds(uint256 tokenId)
+        external
+        isNotFrozen(tokenId)
+    {
+        Property storage prop = properties[tokenId];
+        require(prop.status == Status.FundsLocked, "LandRegistry: not FundsLocked");
+        require(msg.sender == prop.seller, "LandRegistry: only seller");
+
+        prop.sellerConfirmed = true;
+        prop.status          = Status.AwaitingFinal;
+
+        emit SellerConfirmed(tokenId, msg.sender);
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    //  STAGE 4 — FINALIZE
+    // ═════════════════════════════════════════════════════════════
+
+    /// @notice Registrar finalizes: NFT to buyer, POL to seller.
+    function finalizeTransfer(uint256 tokenId)
+        external
+        onlyRole(REGISTRAR_ROLE)
+        isNotFrozen(tokenId)
+    {
+        Property storage prop = properties[tokenId];
+        require(prop.status == Status.AwaitingFinal, "LandRegistry: not AwaitingFinal");
+        require(prop.trustRecorded, "LandRegistry: trust not recorded");
+        require(prop.sellerConfirmed, "LandRegistry: seller not confirmed");
+        require(prop.escrow == prop.price, "LandRegistry: escrow mismatch");
 
         address seller = prop.seller;
-        address buyer  = prop.buyer;
+        address buyer  = prop.potentialBuyer;
         uint256 amount = prop.escrow;
 
-        // Update state BEFORE external calls (Checks-Effects-Interactions)
+        // Effects before interactions
         prop.status = Status.Sold;
         prop.escrow = 0;
 
-        // Transfer the NFT deed from seller to buyer
+        // Transfer NFT
         _transfer(seller, buyer, tokenId);
 
-        // Release escrowed funds to the seller
+        // Release funds to seller
         (bool success, ) = payable(seller).call{value: amount}("");
-        require(success, "LandRegistry: MATIC transfer to seller failed");
+        require(success, "LandRegistry: POL transfer failed");
 
-        emit TransferApproved(tokenId, seller, buyer, amount);
+        emit TransferFinalized(tokenId, seller, buyer, amount);
     }
 
-    /**
-     * @notice Freeze a property due to a legal dispute.
-     * @dev Only the Registrar can dispute/unfreeze. Funds remain locked in escrow.
-     * @param tokenId The ID of the property NFT
-     * @param reason  A short description of the dispute reason (for event log)
-     */
-    function disputeProperty(uint256 tokenId, string calldata reason)
-        external
-        onlyRole(REGISTRAR_ROLE)
-    {
+    // ═════════════════════════════════════════════════════════════
+    //  REGISTRAR FREEZE / UNFREEZE
+    // ═════════════════════════════════════════════════════════════
+
+    /// @notice Registrar toggles freeze on a property.
+    function toggleFreeze(uint256 tokenId) external onlyRole(REGISTRAR_ROLE) {
         Property storage prop = properties[tokenId];
-        require(
-            prop.status == Status.Active || prop.status == Status.Pending,
-            "LandRegistry: cannot dispute a Sold property"
-        );
-        prop.status = Status.Disputed;
-        emit PropertyDisputed(tokenId, reason);
-    }
+        require(prop.status != Status.Sold, "LandRegistry: cannot freeze sold");
 
-    /**
-     * @notice Resolve a dispute and restore the property to Active status.
-     * @dev Refunds any escrowed buyer funds before clearing the dispute.
-     * @param tokenId The ID of the disputed property NFT
-     */
-    function resolveDispute(uint256 tokenId) external onlyRole(REGISTRAR_ROLE) {
-        Property storage prop = properties[tokenId];
-        require(prop.status == Status.Disputed, "LandRegistry: property is not disputed");
+        if (prop.frozen) {
+            // Unfreeze → restore to Active
+            prop.frozen = false;
+            prop.status = Status.Active;
+            // Reset trust state so flow restarts
+            prop.potentialBuyer  = address(0);
+            prop.trustRecorded   = false;
+            prop.sellerConfirmed = false;
 
-        address buyerToRefund = prop.buyer;
-        uint256 refundAmount  = prop.escrow;
-
-        // Reset escrow state
-        prop.status = Status.Active;
-        prop.buyer  = address(0);
-        prop.escrow = 0;
-
-        // Refund the buyer if they had deposited funds
-        if (buyerToRefund != address(0) && refundAmount > 0) {
-            (bool success, ) = payable(buyerToRefund).call{value: refundAmount}("");
-            require(success, "LandRegistry: refund to buyer failed");
+            // Refund buyer if funds were locked
+            if (prop.escrow > 0) {
+                address buyerToRefund = prop.potentialBuyer;
+                uint256 refundAmount  = prop.escrow;
+                prop.escrow = 0;
+                if (buyerToRefund != address(0) && refundAmount > 0) {
+                    (bool ok, ) = payable(buyerToRefund).call{value: refundAmount}("");
+                    require(ok, "LandRegistry: refund failed");
+                }
+            }
+        } else {
+            prop.frozen = true;
+            prop.status = Status.Frozen;
         }
 
-        emit DisputeResolved(tokenId);
+        emit PropertyFrozen(tokenId, prop.frozen);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  BUYER FUNCTIONS
-    // ─────────────────────────────────────────────────────────────
-
-    /**
-     * @notice Start the purchase process by depositing the exact price into escrow.
-     * @dev This moves the property into the Pending state.
-     *      The Registrar must then verify documents off-chain and call approveTransfer.
-     * @param tokenId The ID of the property NFT to purchase
-     */
-    function startPurchase(uint256 tokenId) external payable {
-        Property storage prop = properties[tokenId];
-
-        require(prop.status == Status.Active,        "LandRegistry: property is not available");
-        require(msg.value  == prop.price,            "LandRegistry: send exact listed price");
-        require(msg.sender != prop.seller,           "LandRegistry: seller cannot buy own property");
-        require(msg.sender != address(0),            "LandRegistry: zero address buyer");
-
-        prop.status = Status.Pending;
-        prop.buyer  = msg.sender;
-        prop.escrow = msg.value;
-
-        emit PurchaseStarted(tokenId, msg.sender, msg.value);
-    }
-
-    // ─────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
     //  VIEW HELPERS
-    // ─────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
 
-    /// @notice Returns the full property details for a given tokenId
     function getProperty(uint256 tokenId)
         external
         view
@@ -225,27 +265,34 @@ contract LandRegistry is ERC721URIStorage, AccessControl {
             uint256 price,
             Status  status,
             address seller,
-            address buyer,
-            uint256 escrow
+            address potentialBuyer,
+            bool    trustRecorded,
+            bool    sellerConfirmed,
+            uint256 escrow,
+            bool    frozen
         )
     {
-        Property storage prop = properties[tokenId];
-        return (prop.price, prop.status, prop.seller, prop.buyer, prop.escrow);
+        Property storage p = properties[tokenId];
+        return (
+            p.price,
+            p.status,
+            p.seller,
+            p.potentialBuyer,
+            p.trustRecorded,
+            p.sellerConfirmed,
+            p.escrow,
+            p.frozen
+        );
     }
 
-    /// @notice Returns total number of minted properties
     function totalProperties() external view returns (uint256) {
         return _nextTokenId;
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
     //  REQUIRED OVERRIDES
-    // ─────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
 
-    /**
-     * @dev ERC721URIStorage and AccessControl both define supportsInterface.
-     *      This override resolves the conflict.
-     */
     function supportsInterface(bytes4 interfaceId)
         public
         view

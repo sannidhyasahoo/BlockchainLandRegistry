@@ -1,14 +1,11 @@
 /**
  * pages/PropertyDetail.jsx
- * ──────────────────────────────────────────────────────────────────────────────
- * Shows full property info + actions based on wallet role:
- *   Buyer:     startPurchase() — deposit exact price
- *   Registrar: approveTransfer() / disputeProperty() / resolveDispute()
+ * Full property view with timeline and role-based actions.
  */
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { fetchProperty, fetchMetadata, getWriteContract } from "../utils/contract";
+import { fetchProperty, fetchMetadata, getWriteContract, gasOverrides } from "../utils/contract";
 import { ipfsToHttp } from "../utils/ipfs";
 import StatusBadge from "../components/StatusBadge";
 import { useWallet } from "../context/WalletContext";
@@ -17,210 +14,242 @@ import { ethers } from "ethers";
 
 export default function PropertyDetail() {
   const { id } = useParams();
-  const { address, signer, isRegistrar } = useWallet();
+  const { address, signer } = useWallet();
+  const role = localStorage.getItem("userRole");
+  const isRegistrarRole = role === "registrar";
   const navigate = useNavigate();
 
   const [property, setProperty] = useState(null);
   const [meta, setMeta]         = useState(null);
   const [loading, setLoading]   = useState(true);
   const [busy, setBusy]         = useState(false);
-  const [dispute, setDispute]   = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const p = await fetchProperty(id);
+      const p = await fetchProperty(Number(id));
       setProperty(p);
-      const m = await fetchMetadata(p.uri);
-      setMeta(m);
-    } catch {
-      toast.error("Property not found");
-      navigate("/dashboard");
-    } finally { setLoading(false); }
-  }, [id, navigate]);
+      if (p.uri) { const m = await fetchMetadata(p.uri); setMeta(m); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => { load(); }, [load]);
 
-  const withTx = async (label, fn) => {
+  // Actions
+  const doTx = async (label, fn) => {
     setBusy(true);
-    const toastId = toast.loading(`${label}… confirm in MetaMask`);
+    const toastId = toast.loading(label + "…");
     try {
-      const tx = await fn();
+      const contract = getWriteContract(signer);
+      const tx = await fn(contract);
       toast.loading("Mining…", { id: toastId });
       await tx.wait();
-      toast.success(`${label} successful! 🎉`, { id: toastId });
-      await load();
+      toast.success("Done! 🎉", { id: toastId });
+      load();
     } catch (err) {
-      toast.error(err.reason || err.message || "Transaction failed", { id: toastId });
-    } finally { setBusy(false); }
+      toast.error(err.reason || err.message || "Failed", { id: toastId });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // ── Actions ───────────────────────────────────────────────────
-  const handleBuy = () => withTx("Purchase deposit", async () => {
-    const contract = getWriteContract(signer);
-    return contract.startPurchase(id, { value: property.price });
-  });
-
-  const handleApprove = () => withTx("Transfer approval", async () => {
-    const contract = getWriteContract(signer);
-    return contract.approveTransfer(id);
-  });
-
-  const handleDispute = () => {
-    if (!dispute.trim()) return toast.error("Enter a dispute reason.");
-    withTx("Dispute filing", async () => {
-      const contract = getWriteContract(signer);
-      return contract.disputeProperty(id, dispute);
-    });
+  const handleDeposit = () => {
+    if (!property) return;
+    doTx("Depositing escrow", (c) => c.depositFunds(property.tokenId, gasOverrides({ value: property.price })));
   };
+  const handleFinalize = () => doTx("Finalizing", (c) => c.finalizeTransfer(Number(id), gasOverrides()));
+  const handleFreeze = () => doTx("Toggling freeze", (c) => c.toggleFreeze(Number(id), gasOverrides()));
 
-  const handleResolve = () => withTx("Dispute resolution", async () => {
-    const contract = getWriteContract(signer);
-    return contract.resolveDispute(id);
-  });
+  if (loading) {
+    return <div className="page"><div className="loading-spinner">Loading property…</div></div>;
+  }
+  if (!property) {
+    return <div className="page"><div className="empty-state"><span>❌</span><p>Property not found.</p></div></div>;
+  }
 
-  if (loading) return <div className="page"><div className="loading-spinner">Loading…</div></div>;
-  if (!property) return null;
-
+  const priceEth = ethers.formatEther(property.price || "0");
   const imageUrl = meta?.image ? ipfsToHttp(meta.image) : null;
-  const deedCID = meta?.attributes?.find(a => a.trait_type === "Deed_CID")?.value;
-  const short = (addr) => addr && addr !== ethers.ZeroAddress ? `${addr.slice(0,6)}…${addr.slice(-4)}` : "—";
+  const short = (addr) => addr ? `${addr.slice(0, 8)}…${addr.slice(-6)}` : "—";
+  const isSeller = address?.toLowerCase() === property.seller?.toLowerCase();
+  const isBuyer = address?.toLowerCase() === property.potentialBuyer?.toLowerCase();
 
-  const canBuy     = address && !isRegistrar && property.status === 0 && property.seller?.toLowerCase() !== address?.toLowerCase();
-  const canApprove = isRegistrar && property.status === 1;
-  const canDispute = isRegistrar && (property.status === 0 || property.status === 1);
-  const canResolve = isRegistrar && property.status === 3;
+  const deedCid = meta?.attributes?.find(a => a.trait_type === "Deed_CID")?.value;
+
+  const steps = [
+    { s: 1, label: "Minted" },
+    { s: 2, label: "Trusted" },
+    { s: 3, label: "Escrowed" },
+    { s: 4, label: "Confirmed" },
+    { s: 5, label: "Sold" },
+  ];
 
   return (
     <div className="page detail-page">
-      <button className="back-btn" onClick={() => navigate("/dashboard")}>← Back</button>
+      <button className="back-btn" onClick={() => navigate(-1)}>← Back</button>
 
       <div className="detail-layout">
-        {/* ── Left: Image + Info ─── */}
-        <div className="detail-left">
+        {/* Left Column */}
+        <div>
           <div className="detail-image">
-            {imageUrl ? (
-              <img src={imageUrl} alt={meta?.name} />
-            ) : (
+            {imageUrl ? <img src={imageUrl} alt={meta?.name} /> : (
               <div className="detail-image-placeholder">🏠</div>
             )}
           </div>
 
+          {/* Meta list */}
           <div className="detail-meta-list">
-            {meta?.attributes?.filter(a => a.trait_type !== "Deed_CID").map((a) => (
-              <div className="meta-row" key={a.trait_type}>
-                <span className="meta-key">{a.trait_type}</span>
-                <span className="meta-val">{a.value}</span>
+            <div className="meta-row">
+              <span className="meta-key">Token ID</span>
+              <span className="meta-val">#{property.tokenId}</span>
+            </div>
+            <div className="meta-row">
+              <span className="meta-key">Owner</span>
+              <span className="meta-val" style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}>{short(property.seller)}</span>
+            </div>
+            {property.potentialBuyer && property.potentialBuyer !== ethers.ZeroAddress && (
+              <div className="meta-row">
+                <span className="meta-key">Buyer</span>
+                <span className="meta-val" style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}>{short(property.potentialBuyer)}</span>
               </div>
-            ))}
+            )}
+            <div className="meta-row">
+              <span className="meta-key">Escrow</span>
+              <span className="meta-val" style={{ color: "var(--teal)" }}>{ethers.formatEther(property.escrow)} POL</span>
+            </div>
+            <div className="meta-row">
+              <span className="meta-key">Contract</span>
+              <a className="meta-val" href={`${BLOCK_EXPLORER}/address/${CONTRACT_ADDRESS}`}
+                target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-2)", fontSize: "11px" }}>
+                View on PolygonScan ↗
+              </a>
+            </div>
           </div>
         </div>
 
-        {/* ── Right: Details + Actions ─── */}
-        <div className="detail-right">
+        {/* Right Column */}
+        <div>
           <div className="detail-header">
-            <h1>{meta?.name ?? `Property #${id}`}</h1>
+            <h1>{meta?.name || `Property #${property.tokenId}`}</h1>
             <StatusBadge status={property.status} />
           </div>
 
-          <p className="detail-desc">{meta?.description}</p>
+          <p className="detail-desc">{meta?.description || "No description available."}</p>
 
+          {/* Info Grid */}
           <div className="detail-info-grid">
             <div className="info-card">
-              <span className="info-label">Token ID</span>
-              <span className="info-value">#{property.tokenId}</span>
-            </div>
-            <div className="info-card">
               <span className="info-label">Price</span>
-              <span className="info-value highlight">{property.priceEth} POL</span>
+              <span className="info-value highlight">{priceEth} POL</span>
             </div>
-            <div className="info-card">
-              <span className="info-label">Seller</span>
-              <a href={`${BLOCK_EXPLORER}/address/${property.seller}`} target="_blank" rel="noopener noreferrer" className="info-value link">
-                {short(property.seller)}
-              </a>
-            </div>
-            {property.buyer && property.buyer !== ethers.ZeroAddress && (
-              <div className="info-card">
-                <span className="info-label">Buyer</span>
-                <a href={`${BLOCK_EXPLORER}/address/${property.buyer}`} target="_blank" rel="noopener noreferrer" className="info-value link">
-                  {short(property.buyer)}
-                </a>
+            {meta?.attributes?.filter(a => !a.trait_type.includes("CID")).map(a => (
+              <div className="info-card" key={a.trait_type}>
+                <span className="info-label">{a.trait_type.replace(/_/g, " ")}</span>
+                <span className="info-value">{a.value}</span>
               </div>
-            )}
-            {property.status === 1 && (
-              <div className="info-card full">
-                <span className="info-label">Escrowed</span>
-                <span className="info-value">{ethers.formatEther(property.escrow)} POL locked in contract</span>
-              </div>
-            )}
+            ))}
           </div>
 
-          {deedCID && (
-            <a href={ipfsToHttp(deedCID)} target="_blank" rel="noopener noreferrer" className="deed-link">
-              📄 View Deed Document on IPFS ↗
+          {/* Deed Document */}
+          {deedCid && (
+            <a className="deed-link" href={ipfsToHttp(deedCid)} target="_blank" rel="noopener noreferrer">
+              📄 View Deed Document ↗
             </a>
           )}
 
-          {/* ── Action Panel ─── */}
-          {address ? (
-            <div className="action-panel">
-              {/* BUYER: Start Purchase */}
-              {canBuy && (
-                <div className="action-block">
-                  <h4>Buy this Property</h4>
-                  <p>Deposit <strong>{property.priceEth} POL</strong> into escrow. The Registrar will verify and finalise the transfer.</p>
-                  <button className="btn-primary btn-large" onClick={handleBuy} disabled={busy}>
-                    {busy ? "Processing…" : `Deposit ${property.priceEth} POL`}
-                  </button>
+          {/* Timeline */}
+          <div style={{
+            display: "flex", gap: "8px", alignItems: "center",
+            padding: "14px 18px", background: "var(--bg-glass)",
+            borderRadius: "12px", marginBottom: "24px",
+            fontSize: "11px", fontWeight: 700,
+            border: "1px solid var(--border-soft)",
+            flexWrap: "wrap"
+          }}>
+            {steps.map((st, i) => (
+              <span key={st.s} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                {i > 0 && <span style={{ color: "var(--text-3)", margin: "0 2px" }}>→</span>}
+                <span style={{ color: property.status >= st.s ? "var(--teal)" : "var(--text-3)" }}>
+                  {st.label}
+                </span>
+              </span>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="action-panel">
+            {/* Sold */}
+            {property.status === 5 && <div className="sold-notice">Property has been sold. Ownership transferred.</div>}
+
+            {/* Frozen */}
+            {property.frozen && (
+              <div className="action-block danger">
+                <h4>❄️ Property Frozen</h4>
+                <p>This property is currently frozen by the Registrar due to dispute or collateral issues.</p>
+              </div>
+            )}
+
+            {/* Buyer: Deposit (only designated buyer after trust is recorded) */}
+            {isBuyer && property.status === 2 && !isRegistrarRole && (
+              <div className="action-block">
+                <h4>💰 Deposit Escrow</h4>
+                <p>
+                  Trust has been recorded between you and the seller. Deposit <strong style={{ color: "var(--teal)" }}>{priceEth} POL</strong> to 
+                  lock funds in escrow. The seller will then confirm, and the Registrar will approve the final transfer.
+                </p>
+                <button className="btn-success btn-large" onClick={handleDeposit} disabled={busy}>
+                  {busy ? "Processing…" : `Deposit ${priceEth} POL`}
+                </button>
+              </div>
+            )}
+
+            {/* Info for non-designated buyer: property available for trust */}
+            {!isSeller && !isBuyer && property.status === 1 && !isRegistrarRole && address && (
+              <div className="action-block">
+                <h4>🏠 Interested in this property?</h4>
+                <p>
+                  Contact the seller physically to establish trust. Once you meet, the seller will record your wallet address 
+                  as a trusted buyer, enabling you to deposit funds into escrow.
+                </p>
+                <div style={{ fontSize: "11px", color: "var(--text-3)", marginTop: "8px", fontFamily: "var(--font-mono)" }}>
+                  Your wallet: {address}
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* REGISTRAR: Approve Transfer */}
-              {canApprove && (
-                <div className="action-block">
-                  <h4>Approve Legal Transfer</h4>
-                  <p>This will release the escrow (<strong>{ethers.formatEther(property.escrow)} POL</strong>) to the seller and transfer the NFT deed to the buyer.</p>
-                  <button className="btn-success btn-large" onClick={handleApprove} disabled={busy}>
-                    {busy ? "Processing…" : "✓ Approve Transfer"}
-                  </button>
-                </div>
-              )}
+            {/* Registrar: Finalize */}
+            {isRegistrarRole && property.status === 4 && (
+              <div className="action-block">
+                <h4>Finalize Transfer</h4>
+                <p>Both parties confirmed. Execute the NFT transfer and release escrowed POL to the seller.</p>
+                <button className="btn-success" onClick={handleFinalize} disabled={busy}>
+                  {busy ? "Processing…" : "✓ Approve & Finalize Transfer"}
+                </button>
+              </div>
+            )}
 
-              {/* REGISTRAR: Dispute */}
-              {canDispute && (
-                <div className="action-block danger">
-                  <h4>File a Dispute</h4>
-                  <input value={dispute} onChange={(e) => setDispute(e.target.value)}
-                    placeholder="Reason for legal dispute…" disabled={busy} />
-                  <button className="btn-danger" onClick={handleDispute} disabled={busy}>
-                    {busy ? "Processing…" : "⚠ File Dispute"}
-                  </button>
-                </div>
-              )}
+            {/* Registrar: Freeze */}
+            {isRegistrarRole && property.status !== 5 && (
+              <div className="action-block danger">
+                <h4>{property.frozen ? "Unfreeze" : "Freeze"} Property</h4>
+                <p>{property.frozen 
+                  ? "Unfreezing will reset the property to Active and refund any escrowed funds."
+                  : "Freeze this property for dispute resolution, collateral issues, or legal compliance."
+                }</p>
+                <button className={property.frozen ? "btn-success" : "btn-danger"} onClick={handleFreeze} disabled={busy}>
+                  {property.frozen ? "🔓 Unfreeze" : "🔒 Freeze"}
+                </button>
+              </div>
+            )}
 
-              {/* REGISTRAR: Resolve Dispute */}
-              {canResolve && (
-                <div className="action-block">
-                  <h4>Resolve Dispute</h4>
-                  <p>Buyer funds will be refunded. Property returns to Active status.</p>
-                  <button className="btn-success" onClick={handleResolve} disabled={busy}>
-                    {busy ? "Processing…" : "✓ Resolve Dispute"}
-                  </button>
-                </div>
-              )}
-
-              {property.status === 2 && (
-                <div className="sold-notice">✓ This property has been sold and transferred.</div>
-              )}
-            </div>
-          ) : (
-            <div className="connect-prompt">Connect your wallet to interact with this property.</div>
-          )}
-
-          <a href={`${BLOCK_EXPLORER}/token/${CONTRACT_ADDRESS}?a=${id}`} target="_blank" rel="noopener noreferrer" className="explorer-link">
-            View NFT on PolygonScan ↗
-          </a>
+            {/* No wallet */}
+            {!address && property.status < 5 && (
+              <div className="connect-prompt">Connect your wallet to interact with this property.</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -11,10 +11,13 @@ export const PINATA_GATEWAY = import.meta.env.VITE_PINATA_GATEWAY || "https://ga
 
 // ── Property Status Enum (mirrors Solidity) ───────────────────────────────────
 export const STATUS = {
-  0: { label: "Active",   color: "#22c55e", bg: "#052e16" },
-  1: { label: "Pending",  color: "#f59e0b", bg: "#451a03" },
-  2: { label: "Sold",     color: "#6366f1", bg: "#1e1b4b" },
-  3: { label: "Disputed", color: "#ef4444", bg: "#450a0a" },
+  0: { label: "Mint Pending",    color: "#94a3b8", bg: "#1e293b" },
+  1: { label: "Active",          color: "#22c55e", bg: "#052e16" },
+  2: { label: "Trust Recorded",  color: "#06b6d4", bg: "#083344" },
+  3: { label: "Funds Locked",    color: "#f59e0b", bg: "#451a03" },
+  4: { label: "Awaiting Final",  color: "#3b82f6", bg: "#1e3a5f" },
+  5: { label: "Sold",            color: "#6366f1", bg: "#1e1b4b" },
+  6: { label: "Frozen",          color: "#ef4444", bg: "#450a0a" },
 };
 
 // ── Amoy Network Definition (for wallet_switchEthereumChain) ─────────────────

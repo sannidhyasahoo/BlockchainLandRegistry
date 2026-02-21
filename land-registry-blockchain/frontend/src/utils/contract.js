@@ -4,7 +4,8 @@
  */
 
 import { ethers } from "ethers";
-import ABI from "../abi/LandRegistry.json";
+import artifact from "../abi/LandRegistry.json";
+const ABI = artifact.abi;
 import { CONTRACT_ADDRESS, RPC_URL } from "../constants";
 
 // ── Read-only provider (no wallet needed) ─────────────────────────────────────
@@ -25,7 +26,8 @@ export function getWriteContract(signer) {
 // ── Fetch a single property ───────────────────────────────────────────────────
 export async function fetchProperty(tokenId) {
   const contract = getReadContract();
-  const [price, status, seller, buyer, escrow] = await contract.getProperty(tokenId);
+  const [price, status, seller, potentialBuyer, trustRecorded, sellerConfirmed, escrow, frozen] =
+    await contract.getProperty(tokenId);
   const uri = await contract.tokenURI(tokenId);
   return {
     tokenId: Number(tokenId),
@@ -33,8 +35,11 @@ export async function fetchProperty(tokenId) {
     priceEth: ethers.formatEther(price),
     status: Number(status),
     seller,
-    buyer,
+    potentialBuyer,
+    trustRecorded,
+    sellerConfirmed,
     escrow,
+    frozen,
     uri,
   };
 }
@@ -46,6 +51,32 @@ export async function fetchAllProperties() {
   const ids = Array.from({ length: Number(total) }, (_, i) => i);
   const properties = await Promise.all(ids.map(fetchProperty));
   return properties;
+}
+
+// ── Fetch pending mint requests ──────────────────────────────────────────────
+export async function fetchPendingMints() {
+  const contract = getReadContract();
+  try {
+    const total = await contract.nextRequestId();
+    const ids = Array.from({ length: Number(total) }, (_, i) => i);
+    const requests = [];
+    for (const id of ids) {
+      const [seller, uri, price, isPending] = await contract.mintRequests(id);
+      if (isPending) {
+        requests.push({
+          requestId: Number(id),
+          seller,
+          uri,
+          price,
+          priceEth: ethers.formatEther(price),
+        });
+      }
+    }
+    return requests;
+  } catch (err) {
+    console.error("fetchPendingMints error:", err);
+    return [];
+  }
 }
 
 // ── Fetch metadata JSON from IPFS gateway ────────────────────────────────────
@@ -78,3 +109,17 @@ export function ipfsToHttp(cid) {
   const clean = cid.replace(/^ipfs:\/\//, "");
   return `${import.meta.env.VITE_PINATA_GATEWAY || "https://gateway.pinata.cloud"}/ipfs/${clean}`;
 }
+
+/**
+ * Gas overrides for Polygon Amoy.
+ * MetaMask's BrowserProvider ignores provider-level getFeeData overrides,
+ * so we must pass explicit gas params in every write transaction.
+ */
+export function gasOverrides(extra = {}) {
+  return {
+    maxPriorityFeePerGas: ethers.parseUnits("30", "gwei"),
+    maxFeePerGas: ethers.parseUnits("50", "gwei"),
+    ...extra,
+  };
+}
+

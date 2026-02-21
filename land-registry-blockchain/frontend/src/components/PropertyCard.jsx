@@ -10,6 +10,8 @@ import { ethers } from "ethers";
 export default function PropertyCard({ property }) {
   const [meta, setMeta] = useState(null);
   const navigate = useNavigate();
+  const role = localStorage.getItem("userRole");
+  const basePath = role === "registrar" ? "/registrar-dashboard" : "/user-dashboard";
 
   useEffect(() => {
     if (property.uri) {
@@ -17,42 +19,41 @@ export default function PropertyCard({ property }) {
     }
   }, [property.uri]);
 
-  const short = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "—";
+  const priceEth = ethers.formatEther(property.price || "0");
   const imageUrl = meta?.image ? ipfsToHttp(meta.image) : null;
+  const short = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "—";
 
   return (
-    <div className="property-card" onClick={() => navigate(`/dashboard/property/${property.tokenId}`)}>
+    <div className="property-card" onClick={() => navigate(`${basePath}/property/${property.tokenId}`)}>
       <div className="card-image">
         {imageUrl ? (
-          <img src={imageUrl} alt={meta?.name} onError={(e) => { e.target.style.display = "none"; }} />
+          <img src={imageUrl} alt={meta?.name || "Property"} />
         ) : (
-          <div className="card-image-placeholder">
-            <span>🏠</span>
-          </div>
+          <div className="card-image-placeholder">🏠</div>
         )}
         <StatusBadge status={property.status} />
       </div>
 
       <div className="card-body">
-        <h3 className="card-title">{meta?.name ?? `Property #${property.tokenId}`}</h3>
-        <p className="card-desc">{meta?.description ?? "Loading metadata…"}</p>
+        <div className="card-title">{meta?.name || `Property #${property.tokenId}`}</div>
+        <div className="card-desc">{meta?.description || "Loading metadata…"}</div>
 
         {meta?.attributes && (
           <div className="card-attrs">
-            {meta.attributes.slice(0, 3).map((a) => (
+            {meta.attributes.filter(a => !a.trait_type.includes("CID")).slice(0, 3).map((a) => (
               <span className="attr-chip" key={a.trait_type}>
-                <strong>{a.trait_type}:</strong> {a.value}
+                <strong>{a.value}</strong>
               </span>
             ))}
           </div>
         )}
 
         <div className="card-footer">
-          <div className="card-price">
+          <div>
             <span className="price-label">Price</span>
-            <span className="price-value">{property.priceEth} POL</span>
+            <span className="price-value">{priceEth} POL</span>
           </div>
-          <div className="card-seller">
+          <div style={{ textAlign: "right" }}>
             <span className="seller-label">Seller</span>
             <span className="seller-addr">{short(property.seller)}</span>
           </div>

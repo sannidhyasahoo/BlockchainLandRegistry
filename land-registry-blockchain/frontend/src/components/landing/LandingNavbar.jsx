@@ -1,9 +1,10 @@
 import React from 'react';
 import { Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 
 export default function LandingNavbar() {
+    const role = localStorage.getItem("userRole");
+
     return (
         <header className="fixed top-0 left-0 right-0 z-50 bg-brand-900/95 backdrop-blur-md border-b border-brand-800/80 shadow-lg">
             <div className="max-w-7xl mx-auto px-8 h-20 flex items-center justify-between">
@@ -24,23 +25,30 @@ export default function LandingNavbar() {
                         About
                     </a>
 
-                    <SignedOut>
+                    {!role ? (
                         <Link to="/sign-in">
                             <button className="text-base font-semibold text-white bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 px-6 py-3 rounded-lg transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg hover:scale-105 transform">
                                 Sign In
                             </button>
                         </Link>
-                    </SignedOut>
-                    <SignedIn>
+                    ) : (
                         <div className="flex items-center gap-6">
-                            <Link to="/role-selection">
+                            <Link to={role === "registrar" ? "/registrar-dashboard" : "/user-dashboard"}>
                                 <button className="text-base font-semibold text-brand-100 hover:text-white transition-colors">
                                     Dashboard
                                 </button>
                             </Link>
-                            <UserButton afterSignOutUrl="/" />
+                            <button 
+                               className="text-sm font-semibold text-brand-300 hover:text-white transition-colors border border-brand-700 px-4 py-2 rounded"
+                               onClick={() => {
+                                  localStorage.removeItem("userRole");
+                                  window.location.reload();
+                               }}
+                            >
+                               Sign Out
+                            </button>
                         </div>
-                    </SignedIn>
+                    )}
                 </nav>
             </div>
         </header>
