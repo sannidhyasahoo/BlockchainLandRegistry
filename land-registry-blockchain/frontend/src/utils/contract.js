@@ -98,11 +98,15 @@ export async function fetchPendingMints() {
 export async function fetchMetadata(uri) {
   if (!uri) return null;
   try {
+    // Fallback to pinata cloud if env var is missing or empty
+    const gateway = import.meta.env.VITE_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+    
     const url = uri.startsWith("ipfs://")
-      ? `${import.meta.env.VITE_PINATA_GATEWAY}/ipfs/${uri.slice(7)}`
+      ? `${gateway}/ipfs/${uri.slice(7)}`
       : uri;
-    // Add a 1.5 second timeout to prevent hanging if IPFS gateway is blocked
-    const res = await fetch(url, { signal: AbortSignal.timeout(1500) });
+      
+    // IPFS gateways can be slow, especially on free tiers. 5s timeout.
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     return await res.json();
   } catch (err) {
