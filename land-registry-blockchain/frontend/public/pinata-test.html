@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pinata CORS Test</title>
+</head>
+<body>
+    <h1>Pinata CORS Diagnostics</h1>
+    <input type="text" id="jwt" placeholder="Paste actual JWT here" style="width: 80%; padding: 10px;" />
+    <br><br>
+    <button onclick="testAuth()" style="padding: 10px 20px;">Test Authentication</button>
+    <button onclick="testUpload()" style="padding: 10px 20px;">Test Upload Payload</button>
+    
+    <pre id="output" style="background: #f4f4f4; padding: 20px; font-family: monospace; white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc;"></pre>
+
+    <script>
+        const output = document.getElementById('output');
+        
+        function log(msg) {
+            output.textContent += msg + '\n';
+        }
+
+        async function testAuth() {
+            output.textContent = "";
+            const jwt = document.getElementById('jwt').value.trim();
+            if (!jwt) return log("Please paste your JWT!");
+
+            log("Testing api.pinata.cloud/data/testAuthentication...");
+            try {
+                const res = await fetch("https://api.pinata.cloud/data/testAuthentication", {
+                    method: "GET",
+                    headers: { 'Authorization': `Bearer ${jwt}` }
+                });
+                log(`HTTP Status: ${res.status}`);
+                if (!res.ok) {
+                    throw new Error(res.status + " " + res.statusText);
+                }
+                const data = await res.json();
+                log("Success! Response: " + JSON.stringify(data, null, 2));
+            } catch (err) {
+                log(`FETCH ERROR (Likely CORS or Bad Key): ${err.message}`);
+                console.error(err);
+            }
+        }
+
+        async function testUpload() {
+            output.textContent = "";
+            const jwt = document.getElementById('jwt').value.trim();
+            if (!jwt) return log("Please paste your JWT!");
+
+            log("Testing uploads.pinata.cloud/v3/files...");
+            const formData = new FormData();
+            formData.append("file", new Blob(["hello world"], {type: "text/plain"}), "test.txt");
+
+            try {
+                const res = await fetch("https://uploads.pinata.cloud/v3/files", {
+                    method: "POST",
+                    headers: { 'Authorization': `Bearer ${jwt}` },
+                    body: formData
+                });
+                log(`HTTP Status: ${res.status}`);
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`${res.status} ${res.statusText} - ${text}`);
+                }
+                const data = await res.json();
+                log("Success! File CID: " + data.data.cid);
+            } catch (err) {
+                log(`FETCH ERROR (Likely CORS): ${err.message}`);
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
