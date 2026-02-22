@@ -14,6 +14,7 @@ export default function MyAssets() {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [buyerInputs, setBuyerInputs] = useState({});
+  const [filter, setFilter] = useState("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +82,15 @@ export default function MyAssets() {
     6: { color: "var(--red)", text: () => "This property is frozen by the Registrar for dispute/collateral." },
   };
 
+  const filteredAssets = assets.filter(p => {
+    if (filter === "all") return true;
+    if (filter === "active") return p.status === 1;
+    if (filter === "pending") return [0, 2, 3, 4].includes(p.status);
+    if (filter === "sold") return p.status === 5;
+    if (filter === "frozen") return p.status === 6;
+    return true;
+  });
+
   return (
     <div className="page">
       <div className="page-header">
@@ -97,8 +107,26 @@ export default function MyAssets() {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "800px" }}>
-          {assets.map(p => (
-            <div key={p.tokenId} className={`action-block ${p.frozen ? "danger" : ""}`}>
+          
+          <div className="filter-bar" style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            {[["all", "All"], ["active", "Active"], ["pending", "Pending Actions"], ["sold", "Sold"], ["frozen", "Frozen"]].map(([val, label]) => (
+              <button 
+                key={val} 
+                className={`filter-btn ${filter === val ? "active" : ""}`}
+                onClick={() => setFilter(val)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {filteredAssets.length === 0 ? (
+            <div className="empty-state" style={{ padding: '40px' }}>
+              <p>No properties match the selected filter.</p>
+            </div>
+          ) : (
+            filteredAssets.map(p => (
+              <div key={p.tokenId} className={`action-block ${p.frozen ? "danger" : ""}`}>
               {/* Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                 <div>
@@ -132,12 +160,24 @@ export default function MyAssets() {
               {p.status === 1 && (
                 <div>
                   <div style={{ fontSize: "12px", color: "var(--text-2)", marginBottom: "12px", lineHeight: 1.6 }}>
-                    <strong>Step:</strong> After physically meeting the buyer, enter their wallet address below to establish a trusted connection for this property.
+                    <strong>Step:</strong> {p.partnership ? "Partnership Note: 51% of partners must record trust to advance to Escrow. Enter the buyer's wallet below." : "After physically meeting the buyer, enter their wallet address below to establish a trusted connection for this property."}
                   </div>
+                  {p.partnership && p.potentialBuyer !== ethers.ZeroAddress && (
+                    <div style={{ fontSize: "11px", color: "var(--yellow)", marginBottom: "8px", background: "rgba(255,190,0,0.1)", padding: "8px", borderRadius: "4px" }}>
+                      ⚠️ Partner already nominated buyer: <strong>{p.potentialBuyer}</strong>. Vote for this address to finalize trust.
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: "11px", color: "var(--text-3)", marginBottom: "6px", fontWeight: 600 }}>
-                        Buyer Wallet Address
+                      <label style={{ fontSize: "11px", color: "var(--text-3)", marginBottom: "6px", fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+                        <span>Buyer Wallet Address</span>
+                        <span 
+                          style={{ color: "var(--teal)", cursor: "pointer", textDecoration: "underline" }}
+                          onClick={() => setBuyerInputs(prev => ({ ...prev, [p.tokenId]: address }))}
+                          title="Click to paste your own address (Demo Mode)"
+                        >
+                          Use my address (Demo)
+                        </span>
                       </label>
                       <input
                         placeholder="0xBuyer…"
@@ -174,7 +214,8 @@ export default function MyAssets() {
                 </div>
               )}
             </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>

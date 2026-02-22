@@ -7,7 +7,7 @@ import StatusBadge from "./StatusBadge";
 import { fetchMetadata, ipfsToHttp } from "../utils/contract";
 import { ethers } from "ethers";
 
-export default function PropertyCard({ property }) {
+export default function PropertyCard({ property, saleType = "sale" }) {
   const [meta, setMeta] = useState(null);
   const navigate = useNavigate();
   const role = localStorage.getItem("userRole");
@@ -50,12 +50,19 @@ export default function PropertyCard({ property }) {
 
         <div className="card-footer">
           <div>
-            <span className="price-label">Price</span>
-            <span className="price-value">{priceEth} POL</span>
+            <span className="price-label">{saleType === "lease" ? "Est. Rent" : "Price"}</span>
+            <span className="price-value">{saleType === "lease" ? "Negotiable" : `${priceEth} POL`}</span>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <span className="seller-label">Seller</span>
-            <span className="seller-addr">{short(property.seller)}</span>
+          <div style={{ textAlign: "right", display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+            {property.partnership && (
+              <span style={{ fontSize: '10px', background: 'var(--accent-1)', color: 'var(--bg-main)', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>Partnership</span>
+            )}
+            {property.lease && (
+              <span style={{ fontSize: '10px', background: 'var(--purple)', color: 'var(--text-1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>Active Lease</span>
+            )}
+            {!property.partnership && !property.lease && (
+               <span className="seller-addr">{short(property.seller)}</span>
+            )}
           </div>
         </div>
       </div>
