@@ -21,16 +21,15 @@ export default function LandingNavbar() {
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform duration-300">
                             L
                         </div>
-                        <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+                        <span className="text-xl font-bold text-white tracking-wide">
                             LandChain
                         </span>
                     </Link>
 
                     {/* Navigation */}
                     <div className="hidden md:flex items-center gap-8">
-                        <a href="#features" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">Features</a>
-                        <a href="#workflow" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">How it Works</a>
-                        <a href="#benefits" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">Benefits</a>
+                        <a href="#features" className="text-sm font-medium text-slate-300  hover:text-white transition-colors">Features</a>
+                        <a href="#how-it-works" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">How it Works</a>
                     </div>
 
                     {/* CTA */}
