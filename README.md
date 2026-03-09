@@ -145,5 +145,5 @@ This guarantees that the **Audit History** tab is always beautifully populated a
 
 ---
 <div align="center">
-  <i>Built for the Future of Decentralized Real Estate. By Sannidhya Sahoo.</i>
+  <i>Built for the Future of Decentralized Real Estate. By Sannidhya Sahoo,Venkatesh Reddy K, Rohan Chand M and Pranav.</i>
 </div>
