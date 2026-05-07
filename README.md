@@ -2,7 +2,7 @@
   
   # 🏛️ LandChain: The Future of Real Estate On-Chain
   
-  ### Transparent, Secure, and Instant Physical Asset Tokenization
+  ### Transparent, Secure, and Instant Physical Asset Tokenization.
   
   **Mint, trade, lease, and form partnerships on immutable property deeds.** <br/>
   *Experience decentralized transactions equipped with 3-party trust mechanics and AI-powered risk assessment.*
